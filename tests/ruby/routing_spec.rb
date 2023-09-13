@@ -78,4 +78,37 @@ describe "Routing" do
       end
     end
   end
+
+  describe 'config: default_role' do
+    context "with default_role set to primary" do
+      let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5, "transaction", "random", "info", {"default_role" => "primary"}) }
+
+      it "routes queries only to primary" do
+        conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+
+        query_count = 30
+        failed_count = 0
+
+        query_count.times do
+          conn.async_exec("SELECT 1 + 2")
+        rescue
+          failed_count += 1
+        end
+
+        expect(failed_count).to eq(0)
+        processes.replicas.map(&:count_select_1_plus_2).each do |instance_share|
+          expect(instance_share).to eq(0)
+        end
+
+        expect(processes.primary.count_select_1_plus_2).to eq(query_count)
+      end
+
+      it "returns correct default as 'primary' with SHOW SERVER ROLE" do
+        conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+
+        results = conn.async_exec("SHOW SERVER ROLE").to_a
+        expect(results[0]['server role']).to eq('primary')
+      end
+    end
+  end
 end
