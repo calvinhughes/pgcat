@@ -283,7 +283,7 @@ where
 {
     let mut res = BytesMut::new();
 
-    let detail_msg = vec![
+    let detail_msg = [
         "",
         "SHOW HELP|CONFIG|DATABASES|POOLS|CLIENTS|SERVERS|USERS|VERSION",
         // "SHOW PEERS|PEER_POOLS", // missing PEERS|PEER_POOLS
@@ -301,7 +301,6 @@ where
         // "KILL <db>",
         // "SUSPEND",
         "SHUTDOWN",
-        // "WAIT_CLOSE [<db>]", // missing
     ];
 
     res.put(notify("Console usage", detail_msg.join("\n\t")));
@@ -691,6 +690,8 @@ where
         ("query_count", DataType::Numeric),
         ("error_count", DataType::Numeric),
         ("age_seconds", DataType::Numeric),
+        ("maxwait", DataType::Numeric),
+        ("maxwait_us", DataType::Numeric),
     ];
 
     let new_map = get_client_stats();
@@ -698,6 +699,7 @@ where
     res.put(row_description(&columns));
 
     for (_, client) in new_map {
+        let max_wait = client.max_wait_time.load(Ordering::Relaxed);
         let row = vec![
             format!("{:#010X}", client.client_id()),
             client.pool_name(),
@@ -711,6 +713,8 @@ where
                 .duration_since(client.connect_time())
                 .as_secs()
                 .to_string(),
+            (max_wait / 1_000_000).to_string(),
+            (max_wait % 1_000_000).to_string(),
         ];
 
         res.put(data_row(&row));
@@ -745,6 +749,7 @@ where
         ("age_seconds", DataType::Numeric),
         ("prepare_cache_hit", DataType::Numeric),
         ("prepare_cache_miss", DataType::Numeric),
+        ("prepare_cache_eviction", DataType::Numeric),
         ("prepare_cache_size", DataType::Numeric),
     ];
 
@@ -778,6 +783,10 @@ where
                 .load(Ordering::Relaxed)
                 .to_string(),
             server
+                .prepared_eviction_count
+                .load(Ordering::Relaxed)
+                .to_string(),
+            server
                 .prepared_cache_size
                 .load(Ordering::Relaxed)
                 .to_string(),
@@ -802,7 +811,7 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let parts: Vec<&str> = match tokens.len() == 2 {
-        true => tokens[1].split(",").map(|part| part.trim()).collect(),
+        true => tokens[1].split(',').map(|part| part.trim()).collect(),
         false => Vec::new(),
     };
 
@@ -865,7 +874,7 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let parts: Vec<&str> = match tokens.len() == 2 {
-        true => tokens[1].split(",").map(|part| part.trim()).collect(),
+        true => tokens[1].split(',').map(|part| part.trim()).collect(),
         false => Vec::new(),
     };
 
